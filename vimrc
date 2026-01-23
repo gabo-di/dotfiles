@@ -1,31 +1,39 @@
 """ --- Minimal Vim config (portable, server-friendly) ---
 
-" Use fdfind (Ubuntu) or fd to populate path for :find (much faster than path+=**)
-" This allows :find to work instantly across your project while respecting .gitignore
+" 1. SEARCH & PATH CONFIGURATION
+" Set path to recursive, but we will use wildignore to keep it fast
+set path=.,,**
+set wildmenu
+set wildignorecase
+" Ignore common noise so :find doesn't get bogged down
+set wildignore+=*/.git/*,*/node_modules/*,*/__pycache__/*,*.o,*.pyc,*.swp
+
+" Use fd/fdfind to make command-line completion (Tab) much faster
 if executable('fdfind')
-  let &path = ".,," . substitute(system('fdfind --type d --max-depth 3'), '\n', ',', 'g')
+    " Ubuntu logic
+    let $FZF_DEFAULT_COMMAND = 'fdfind --type f'
+    set wildoptions=pum " Modern popup menu for completion
 elseif executable('fd')
-  let &path = ".,," . substitute(system('fd --type d --max-depth 3'), '\n', ',', 'g')
-else
-  set path+=**                  " Fallback to recursive search if fd is missing
+    " Standard logic
+    let $FZF_DEFAULT_COMMAND = 'fd --type f'
+    set wildoptions=pum
 endif
 
-set wildmenu                  " Visual menu for command-line completion
-set wildignore+=*/.git/*,*/node_modules/*,*/__pycache__/*,*.o,*.pyc
-
+" 2. INTERFACE & SEARCH BEHAVIOR
 set number rnu                 " Hybrid line numbers
 set hlsearch incsearch         " Search as you type + highlight matches
 syntax on                     " Syntax highlighting
 
+" 3. INDENTATION & MOUSE
 set autoindent                " Basic indentation
 set tabstop=4 shiftwidth=4 expandtab
 set mouse=a                   " Enable mouse (splits/panes, selection)
 
-" Make :grep use ripgrep (rg) for speed and ignore noise like .git/node_modules
+" 4. GREP CONFIGURATION (Ripgrep)
 if executable('rg')
-  " --vimgrep: matches format Vim expects (file:line:col:text)
-  " --smart-case: case-insensitive unless uppercase is used
-  " --no-heading: required for Vim to parse the list correctly
+  " --vimgrep: file:line:col:text
+  " --smart-case: case-insensitive unless uppercase used
+  " --no-heading: removes grouped headers so Vim can parse lines
   set grepprg=rg\ --vimgrep\ --smart-case\ --no-heading
   set grepformat=%f:%l:%c:%m,%f:%l:%m
 elseif executable('grep')
