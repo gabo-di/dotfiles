@@ -1,35 +1,62 @@
-""" --- Minimal Vim config (portable, server-friendly) ---
+" --- Minimal Vim config (portable, server-friendly) ---
 
-" 1. SEARCH & PATH CONFIGURATION
-" Set path to recursive, but we will use wildignore to keep it fast
-set path=.,,**
+" 1) SEARCH & PATH CONFIGURATION
+set path=.,**
 set wildmenu
 set wildignorecase
-" Ignore common noise so :find doesn't get bogged down
-set wildignore+=*/.git/*,*/node_modules/*,*/__pycache__/*,*.o,*.pyc,*.swp
+" Ignore common noise so completion/:find doesn't get bogged down
+set wildignore+=*/.git/*,*/node_modules/*,*/__pycache__/*,*.o,*.pyc,*.swp,*.pyc
 
-" Use fd/fdfind to make command-line completion (Tab) much faster
-if executable('fdfind')
-    " Ubuntu logic
-    let $FZF_DEFAULT_COMMAND = 'fdfind --type f'
-    set wildoptions=pum " Modern popup menu for completion
-elseif executable('fd')
-    " Standard logic
-    let $FZF_DEFAULT_COMMAND = 'fd --type f'
-    set wildoptions=pum
+" Fast file finder using fd/fdfind (recommended on servers)
+" Usage:
+"   :FF <pattern>      (uses fd, opens file if unique, else quickfix list)
+if executable('fdfind') || executable('fd')
+  let s:fd = executable('fdfind') ? 'fdfind' : 'fd'
+
+  function! s:FastFind(pat) abort
+    " Search from current directory downward.
+    " --hidden/--follow help in repos; excludes keep it fast/clean.
+    let l:cmd = s:fd
+          \ . ' --type f --hidden --follow'
+          \ . ' --exclude .git --exclude node_modules --exclude __pycache__'
+          \ . ' ' . shellescape(a:pat) . ' .'
+
+    let l:files = systemlist(l:cmd)
+
+    if v:shell_error != 0
+      echohl ErrorMsg | echom 'fd error: ' . l:cmd | echohl None
+      return
+    endif
+
+    if empty(l:files)
+      echohl WarningMsg | echom 'No match: ' . a:pat | echohl None
+      return
+    endif
+
+    if len(l:files) == 1
+      execute 'edit ' . fnameescape(l:files[0])
+      return
+    endif
+
+    " Multiple matches -> quickfix list
+    call setqflist([], 'r', {'title': 'FF: ' . a:pat, 'lines': l:files})
+    copen
+  endfunction
+
+  command! -nargs=1 -complete=file FF call s:FastFind(<q-args>)
 endif
 
-" 2. INTERFACE & SEARCH BEHAVIOR
-set number rnu                 " Hybrid line numbers
-set hlsearch incsearch         " Search as you type + highlight matches
-syntax on                     " Syntax highlighting
+" 2) INTERFACE & SEARCH BEHAVIOR
+set number rnu
+set hlsearch incsearch
+syntax on
 
-" 3. INDENTATION & MOUSE
-set autoindent                " Basic indentation
+" 3) INDENTATION & MOUSE
+set autoindent
 set tabstop=4 shiftwidth=4 expandtab
-set mouse=a                   " Enable mouse (splits/panes, selection)
+set mouse=a
 
-" 4. GREP CONFIGURATION (Ripgrep)
+" 4) GREP CONFIGURATION (Ripgrep)
 if executable('rg')
   " --vimgrep: file:line:col:text
   " --smart-case: case-insensitive unless uppercase used
