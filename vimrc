@@ -1,68 +1,71 @@
-" --- Minimal Vim config (portable, server-friendly) ---
+" --- minimal vimrc ---
 
-" 1) SEARCH & PATH CONFIGURATION
+" UI / search basics
+set nu rnu hls is
+syntax on
+
+" Indentation / tabs
+set ai ts=4 sw=4 et
+
+" Mouse support
+set mouse=a
+
+" Recursive :find + command-line completion
 set path=.,**
-set wildmenu
-set wildignorecase
-" Ignore common noise so completion/:find doesn't get bogged down
-set wildignore+=*/.git/*,*/node_modules/*,*/__pycache__/*,*.o,*.pyc,*.swp,*.pyc
+set wildmenu wildignorecase
+set wildignore+=*.o,*.pyc,*.swp
 
-" Fast file finder using fd/fdfind (recommended on servers)
-" Usage:
-"   :FF <pattern>      (uses fd, opens file if unique, else quickfix list)
+" Grep via ripgrep -> quickfix (:copen, :cnext, :cprev)
+if executable('rg')
+  set gp=rg\ --vimgrep\ --smart-case\ --no-heading
+  set gfm=%f:%l:%c:%m,%f:%l:%m
+endif
+
+" Fast fuzzy-ish file finder via fd/fdfind (no plugins)
+" Usage: :fdfind <pattern><Tab>
 if executable('fdfind') || executable('fd')
   let s:fd = executable('fdfind') ? 'fdfind' : 'fd'
 
-  function! s:FastFind(pat) abort
-    " Search from current directory downward.
-    " --hidden/--follow help in repos; excludes keep it fast/clean.
-    let l:cmd = s:fd
-          \ . ' --type f --hidden --follow'
-          \ . ' --exclude .git --exclude node_modules --exclude __pycache__'
-          \ . ' ' . shellescape(a:pat) . ' .'
+  " type :fdfind ... -> becomes :Fdfind ...
+  cnoreabbrev <expr> fdfind (getcmdtype()==':' && getcmdline() =~# '^fdfind\>' ? 'Fdfind' : 'fdfind')
 
-    let l:files = systemlist(l:cmd)
-
-    if v:shell_error != 0
-      echohl ErrorMsg | echom 'fd error: ' . l:cmd | echohl None
-      return
-    endif
-
-    if empty(l:files)
-      echohl WarningMsg | echom 'No match: ' . a:pat | echohl None
-      return
-    endif
-
-    if len(l:files) == 1
-      execute 'edit ' . fnameescape(l:files[0])
-      return
-    endif
-
-    " Multiple matches -> quickfix list
-    call setqflist([], 'r', {'title': 'FF: ' . a:pat, 'lines': l:files})
-    copen
+  " Core: return RELATIVE matches (nice for <Tab>)
+  function! s:fdrel(pat) abort
+    let l:g = empty(a:pat) ? '*' : '*'.a:pat.'*'
+    return systemlist('cd '.shellescape(getcwd()).' && '.s:fd.' --type f --hidden --follow --glob '.shellescape(l:g).' .')
   endfunction
 
-  command! -nargs=1 -complete=file FF call s:FastFind(<q-args>)
-endif
+  " Completion func must accept (A, L, P)
+  function! s:fdcomp(A, L, P) abort
+    return s:fdrel(a:A)
+  endfunction
 
-" 2) INTERFACE & SEARCH BEHAVIOR
-set number rnu
-set hlsearch incsearch
-syntax on
+  function! s:fdopen(arg) abort
+    let l:cwd = getcwd()
 
-" 3) INDENTATION & MOUSE
-set autoindent
-set tabstop=4 shiftwidth=4 expandtab
-set mouse=a
+    " If user gives a real path, open directly
+    if a:arg =~# '^/' || a:arg =~# '^\./' || a:arg =~# '^\.\./'
+      execute 'edit ' . fnameescape(fnamemodify(a:arg, ':p'))
+      return
+    endif
 
-" 4) GREP CONFIGURATION (Ripgrep)
-if executable('rg')
-  " --vimgrep: file:line:col:text
-  " --smart-case: case-insensitive unless uppercase used
-  " --no-heading: removes grouped headers so Vim can parse lines
-  set grepprg=rg\ --vimgrep\ --smart-case\ --no-heading
-  set grepformat=%f:%l:%c:%m,%f:%l:%m
-elseif executable('grep')
-  set grepprg=grep\ -RIn
+    " If user picked a relative file from <Tab>, open it
+    if filereadable(a:arg)
+      execute 'edit ' . fnameescape(fnamemodify(l:cwd.'/'.a:arg, ':p'))
+      return
+    endif
+
+    " Otherwise treat as pattern
+    let l:f = s:fdrel(a:arg)
+    if empty(l:f)
+      echo 'No match: '.a:arg
+    elseif len(l:f)==1
+      execute 'edit ' . fnameescape(fnamemodify(l:cwd.'/'.l:f[0], ':p'))
+    else
+      call setqflist(map(l:f,{_,v->{'filename':fnamemodify(l:cwd.'/'.v,':p')}}),'r',{'title':'fdfind: '.a:arg})
+      copen
+    endif
+  endfunction
+
+  command! -nargs=? -complete=customlist,s:fdcomp Fdfind call s:fdopen(<q-args>)
 endif
